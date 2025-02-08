@@ -18,15 +18,17 @@ const MyCalendar: React.FC = () => {
   useEffect(() => {
     const fetchContestData = async () => {
       try {
-        const response = await fetch('http://localhost:5001/api/upcoming'); // Backend API endpoint
+        const backendUrl = (import.meta.env.VITE_BACKEND_URL as string);
+        console.log('Backend URL:', backendUrl);
+        const response = await fetch(`${backendUrl}/api/upcoming`);
         const data: any[] = await response.json();
 
         // Format the contests data to match the Calendar events structure
-        const formattedEvents: ContestEvent[] = data.map(contest => ({
+        const formattedEvents: ContestEvent[] = data.map((contest) => ({
           title: contest.title,
           start: new Date(contest.startTime),
           end: new Date(contest.endTime),
-          url: contest.url
+          url: contest.url,
         }));
 
         setEvents(formattedEvents);
@@ -39,14 +41,14 @@ const MyCalendar: React.FC = () => {
   }, []);
 
   return (
-    <div>
+    <div style={{ padding: '20px' }}>
       <Calendar
         localizer={localizer}
         events={events}
         startAccessor="start"
         endAccessor="end"
-        style={{ height: '90vh' }}
-        onSelectEvent={(event: ContestEvent) => window.open(event.url, '_blank')} // Opens the contest URL in a new tab
+        style={{ height: '90vh', border: '1px solid #ddd', borderRadius: '10px', padding: '10px' }}
+        onSelectEvent={(event: ContestEvent) => window.open(event.url, '_blank')}
       />
     </div>
   );
