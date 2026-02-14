@@ -1,119 +1,80 @@
-const express = require('express');
-const router = express.Router();
-const axios = require('axios');
-const cors = require('cors');
-process.env.TZ = 'Asia/Kolkata'
+const express = require('express')
+const cors = require('cors')
 
-router.use(cors());
+const { PLATFORM_LABELS } = require('./lib/constants')
+const { httpClient } = require('./lib/httpClient')
+const { getContests } = require('./lib/contestService')
+const { toIcs } = require('./lib/ics')
 
-const parseCodechef = (data) => {
-    let contests = [];
-    for (let i = 0; i < data.length; i++) {
-        let contest = {};
-        contest.site = 'codechef';
-        contest.title = data[i].contest_name;
-        contest.startTime = data[i].contest_start_date;
-        let date = new Date(contest.startTime)
-        let milliseconds = date.getTime()
-        contest.startTime = milliseconds;
-        contest.duration = data[i].contest_duration*60*1000;
-        contest.endTime = contest.startTime + contest.duration;
-        contest.url = "https://www.codechef.com/"+data[i].contest_code;
-        contests.push(contest);
-    }
-    return contests;
-}
+const router = express.Router()
 
-const parseCodeforces = (data) => {
-    let contests = [];
-    for (let i = 0; i < data.length; i++) {
-        if(data[i].phase === 'FINISHED') break;
-        let contest = {};
-        contest.site = 'codeforces';
-        contest.title = data[i].name;
-        contest.startTime = data[i].startTimeSeconds*1000;
-        contest.duration = data[i].durationSeconds*1000;
-        contest.endTime = contest.startTime + contest.duration;
-        contest.url = "https://codeforces.com/contest/"+data[i].id;
-        contests.push(contest);
-    }
+router.use(cors())
 
-    return contests;
-}
+router.get('/', (_req, res) => {
+  res.json({
+    service: 'cpcal backend',
+    endpoints: ['/api/platforms', '/api/upcoming', '/api/ics', '/api/notify/webhook'],
+  })
+})
 
-const parseLeetcode = (data) => {
-    let contests = [];
-    for (let i = 0; i < data.length; i++) {
-        let contest = {};
-        contest.site = 'leetcode';
-        contest.title = data[i].title;
-        contest.startTime = data[i].startTime*1000;
-        contest.duration = data[i].duration*60*1000;
-        contest.endTime = contest.startTime + contest.duration;
-        contest.url = "https://leetcode.com/contest/"+data[i].titleSlug;
-        contests.push(contest);
-    }
-    return contests;
-}
+router.get('/platforms', (_req, res) => {
+  const platforms = Object.entries(PLATFORM_LABELS).map(([id, label]) => ({ id, label }))
+  res.json(platforms)
+})
 
-router.get('/', (req, res) => {
-    res.send('Hello World');
-});
+router.get('/upcoming', async (req, res) => {
+  const contests = await getContests(req.query)
+  res.json({
+    generatedAt: Date.now(),
+    total: contests.length,
+    platforms: Object.keys(PLATFORM_LABELS),
+    contests,
+  })
+})
 
+router.get('/ics', async (req, res) => {
+  const contests = await getContests(req.query)
+  const payload = toIcs(contests)
 
+  res.setHeader('Content-Type', 'text/calendar; charset=utf-8')
+  res.setHeader('Content-Disposition', 'attachment; filename="cpcal-contests.ics"')
+  res.send(payload)
+})
 
-router.get('/upcoming/', async (req, res) => {
-    let contests = [];
-    await axios.post('https://www.codechef.com/api/list/contests/all?sort_by=START&sorting_order=asc&offset=0&mode=all',{
-        headers: {
-            'Content-Type': 'application/json',
-        }
+router.post('/notify/webhook', async (req, res) => {
+  const { webhookUrl, minutesAhead = 60, platforms = [], q = '' } = req.body || {}
+
+  if (!webhookUrl || typeof webhookUrl !== 'string') {
+    return res.status(400).json({ error: 'webhookUrl is required' })
+  }
+
+  const now = Date.now()
+  const contests = await getContests({
+    includePast: false,
+    horizonDays: Math.max(1, Math.ceil(Number(minutesAhead) / (24 * 60))),
+    platforms: Array.isArray(platforms) ? platforms.join(',') : String(platforms || ''),
+    q,
+  })
+
+  const windowMs = Number(minutesAhead) * 60 * 1000
+  const due = contests.filter((contest) => contest.startTime >= now && contest.startTime <= now + windowMs)
+
+  try {
+    await httpClient.post(webhookUrl, {
+      generatedAt: now,
+      minutesAhead: Number(minutesAhead),
+      count: due.length,
+      contests: due,
     })
-    .then((response) => {
-        contests.push(response.data.future_contests);
-    })
-    .catch((error) => {
-        res.send(error);
-    });
-    await axios.post('https://leetcode.com/graphql',{
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        query: `{
-          topTwoContests{
-            title
-            startTime
-            duration
-            cardImg
-            titleSlug
-          }
-        }`
-      })
-      .then((response) => {
-          contests.push(response.data.data.topTwoContests);
-      })
-      .catch((error) => {
-          res.send(error);
-      });
-    await axios.post('https://codeforces.com/api/contest.list',{
-        headers: {
-            'Content-Type': 'application/json',
-        }
-    })
-    .then((response) => {
-        contests.push(response.data.result);
-    })
-    .catch((error) => {
-        res.send(error);
-    });
-    let sorted = [].concat(parseLeetcode(contests[1]),parseCodeforces(contests[2]),parseCodechef(contests[0])).sort(function(a, b){
-        return a.startTime - b.startTime;
-    });
-    res.send(sorted);
-});
 
-router.use('/:platform', ()=>{
-    require('./platforms')(router);
-});
+    return res.json({ ok: true, sent: due.length })
+  } catch (error) {
+    return res.status(502).json({
+      ok: false,
+      error: 'Failed to deliver webhook',
+      detail: String(error.message || error),
+    })
+  }
+})
 
-module.exports = router;
+module.exports = router

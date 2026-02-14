@@ -1,12 +1,7 @@
-import MyCalendar from './MyCalendar';
+import MyCalendar from './MyCalendar'
 
 const App = () => {
-  return (
-    <div>
-      <MyCalendar/>
-    </div>
-    
-  )
-};
+  return <MyCalendar />
+}
 
 export default App
