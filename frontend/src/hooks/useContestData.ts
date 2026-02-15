@@ -51,8 +51,8 @@ export const useContestData = (): ContestState => {
   const [enabledPlatforms, setEnabledPlatforms] = useState<Set<PlatformId>>(new Set())
   const [searchTerm, setSearchTerm] = useState('')
   const [horizonDays, setHorizonDays] = useState(30)
-  const [showPastContests, setShowPastContests] = useState(true)
-  const [pastDaysWindow, setPastDaysWindow] = useState(365)
+  const [showPastContests, setShowPastContests] = useState(false)
+  const [pastDaysWindow, setPastDaysWindow] = useState(30)
   const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar')
   const [showBookmarksOnly, setShowBookmarksOnly] = useState(false)
   const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set())
@@ -118,9 +118,16 @@ export const useContestData = (): ContestState => {
       setError(null)
 
       try {
+        const upcomingParams = new URLSearchParams()
+        upcomingParams.set('includePast', String(showPastContests))
+        upcomingParams.set('pastDays', String(pastDaysWindow))
+        if (horizonDays > 0) {
+          upcomingParams.set('horizonDays', String(horizonDays))
+        }
+
         const [platformsRes, eventsRes] = await Promise.all([
           fetch(`${backendUrl}/api/platforms`),
-          fetch(`${backendUrl}/api/upcoming?includePast=true&pastDays=365&horizonDays=365`),
+          fetch(`${backendUrl}/api/upcoming?${upcomingParams.toString()}`),
         ])
 
         if (!platformsRes.ok || !eventsRes.ok) {
@@ -153,7 +160,7 @@ export const useContestData = (): ContestState => {
     }
 
     fetchData()
-  }, [backendUrl])
+  }, [backendUrl, horizonDays, pastDaysWindow, showPastContests])
 
   const filteredEvents = useMemo(() => {
     const now = Date.now()
@@ -188,7 +195,13 @@ export const useContestData = (): ContestState => {
   const nextContest = filteredEvents.find(event => event.start.getTime() >= Date.now()) || null
   const solvedCount = completedIds.size
   const progressPct = Math.min(100, Math.round((solvedCount / Math.max(goalTarget, 1)) * 100))
-  const icsUrl = `${backendUrl}/api/ics?includePast=true&pastDays=365&horizonDays=365`
+  const icsParams = new URLSearchParams()
+  icsParams.set('includePast', String(showPastContests))
+  icsParams.set('pastDays', String(pastDaysWindow))
+  if (horizonDays > 0) {
+    icsParams.set('horizonDays', String(horizonDays))
+  }
+  const icsUrl = `${backendUrl}/api/ics?${icsParams.toString()}`
 
   const togglePlatform = (platformId: PlatformId) => {
     setEnabledPlatforms(current => {

@@ -76,7 +76,7 @@ const MyCalendar: React.FC = () => {
       <header className='hero'>
         <div>
           <h1>CP Contest Radar</h1>
-          <p>Track contests with previous-year history in your timezone ({timezone}).</p>
+          <p>Track contests in your timezone ({timezone}) with optional past-contest history.</p>
         </div>
         <div className='hero-actions'>
           <button type='button' onClick={() => setViewMode(viewMode === 'calendar' ? 'list' : 'calendar')}>
@@ -129,7 +129,7 @@ const MyCalendar: React.FC = () => {
               min={1}
               max={365}
               value={pastDaysWindow}
-              onChange={event => setPastDaysWindow(Math.max(1, Number(event.target.value) || 365))}
+              onChange={event => setPastDaysWindow(Math.max(1, Number(event.target.value) || 30))}
             />
           </label>
         )}
