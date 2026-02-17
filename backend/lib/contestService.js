@@ -1,6 +1,9 @@
 const { DAY_MS } = require('./constants')
 const { fetchAllContests } = require('./contestSources')
 
+const SOURCE_CACHE_TTL_MS = Number(process.env.CONTEST_SOURCE_CACHE_TTL_MS || 15 * 60 * 1000)
+const sourceCache = new Map()
+
 const uniqueBy = (items, keyBuilder) => {
   const seen = new Set()
   return items.filter((item) => {
@@ -23,6 +26,30 @@ const parseBoolean = (value, fallback = false) => {
 const parsePositiveNumber = (value, fallback) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+const getCacheKey = ({ includePast }) => `includePast:${includePast ? '1' : '0'}`
+
+const getCachedContests = async ({ includePast }) => {
+  const key = getCacheKey({ includePast })
+  const now = Date.now()
+  const cached = sourceCache.get(key)
+
+  if (cached && now - cached.fetchedAt < SOURCE_CACHE_TTL_MS) {
+    return cached.contests
+  }
+
+  try {
+    const raw = await fetchAllContests({ includePast })
+    const deduped = uniqueBy(raw, (contest) => `${contest.url}|${contest.startTime}`)
+    sourceCache.set(key, { fetchedAt: now, contests: deduped })
+    return deduped
+  } catch (_error) {
+    if (cached) {
+      return cached.contests
+    }
+    throw _error
+  }
 }
 
 const applyContestFilters = (contests, query = {}) => {
@@ -57,9 +84,8 @@ const applyContestFilters = (contests, query = {}) => {
 
 const getContests = async (query = {}) => {
   const includePast = parseBoolean(query.includePast, true)
-  const raw = await fetchAllContests({ includePast })
-  const deduped = uniqueBy(raw, (contest) => `${contest.url}|${contest.startTime}`)
-  return applyContestFilters(deduped, query)
+  const cachedContests = await getCachedContests({ includePast })
+  return applyContestFilters(cachedContests, query)
 }
 
 module.exports = {

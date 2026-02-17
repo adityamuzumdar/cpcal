@@ -3,6 +3,8 @@ import { DAY_MS, STORAGE_KEYS } from '../constants/contest'
 import { CalendarEvent, ContestApiEvent, Platform, PlatformId } from '../types/contest'
 import { readStoredNotes, readStoredSet } from '../utils/storage'
 
+const FRONTEND_CACHE_TTL_MS = 5 * 60 * 1000
+
 interface ContestState {
   platforms: Platform[]
   events: CalendarEvent[]
@@ -125,9 +127,45 @@ export const useContestData = (): ContestState => {
           upcomingParams.set('horizonDays', String(horizonDays))
         }
 
+        const query = upcomingParams.toString()
+        const cacheKey = `${STORAGE_KEYS.notes}:contest-cache:${query}`
+        const cachedRaw = localStorage.getItem(cacheKey)
+
+        if (cachedRaw) {
+          try {
+            const cached = JSON.parse(cachedRaw) as {
+              ts?: number
+              platforms?: Platform[]
+              contests?: ContestApiEvent[]
+            }
+
+            const isFresh = Number.isFinite(cached?.ts) && Date.now() - Number(cached.ts) <= FRONTEND_CACHE_TTL_MS
+            if (isFresh && Array.isArray(cached.platforms) && Array.isArray(cached.contests)) {
+              const mappedCached: CalendarEvent[] = cached.contests.map(contest => ({
+                id: contest.id || `${contest.platform}-${contest.startTime}-${contest.url}`,
+                title: contest.title,
+                platform: contest.platform,
+                platformLabel: contest.platformLabel || contest.platform,
+                start: new Date(contest.startTime),
+                end: new Date(contest.endTime),
+                duration: contest.duration,
+                url: contest.url,
+              }))
+
+              setPlatforms(cached.platforms)
+              setEnabledPlatforms(new Set(cached.platforms.map(platform => platform.id)))
+              setEvents(mappedCached)
+              setLoading(false)
+              return
+            }
+          } catch (_error) {
+            // Ignore invalid cache entries.
+          }
+        }
+
         const [platformsRes, eventsRes] = await Promise.all([
           fetch(`${backendUrl}/api/platforms`),
-          fetch(`${backendUrl}/api/upcoming?${upcomingParams.toString()}`),
+          fetch(`${backendUrl}/api/upcoming?${query}`),
         ])
 
         if (!platformsRes.ok || !eventsRes.ok) {
@@ -137,6 +175,15 @@ export const useContestData = (): ContestState => {
         const platformData: Platform[] = await platformsRes.json()
         const payload: { contests?: ContestApiEvent[] } = await eventsRes.json()
         const contests = Array.isArray(payload?.contests) ? payload.contests : []
+
+        localStorage.setItem(
+          cacheKey,
+          JSON.stringify({
+            ts: Date.now(),
+            platforms: platformData,
+            contests,
+          })
+        )
 
         const mappedEvents: CalendarEvent[] = contests.map(contest => ({
           id: contest.id || `${contest.platform}-${contest.startTime}-${contest.url}`,

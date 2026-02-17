@@ -24,6 +24,7 @@ router.get('/platforms', (_req, res) => {
 
 router.get('/upcoming', async (req, res) => {
   const contests = await getContests(req.query)
+  res.setHeader('Cache-Control', 'public, max-age=60')
   res.json({
     generatedAt: Date.now(),
     total: contests.length,
@@ -38,6 +39,7 @@ router.get('/ics', async (req, res) => {
 
   res.setHeader('Content-Type', 'text/calendar; charset=utf-8')
   res.setHeader('Content-Disposition', 'attachment; filename="cpcal-contests.ics"')
+  res.setHeader('Cache-Control', 'public, max-age=60')
   res.send(payload)
 })
 
